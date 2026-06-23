@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Constant Product · AMM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0A0E14;
+    --surface:   #121821;
+    --surface-2: #1A222E;
+    --line:      #232E3C;
+    --text:      #E6EDF3;
+    --muted:     #7D8590;
+    --x:         #F5A623;   /* token0 / x-axis */
+    --x-dim:     #5a4317;
+    --y:         #2DD4BF;   /* token1 / y-axis */
+    --y-dim:     #154a44;
+    --danger:    #F4685B;
+    --ok:        #5BD68A;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  /* ---------- top bar ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    flex-wrap: wrap; gap: 12px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .eq {
+    font-family: "IBM Plex Mono", monospace; font-size: 13px;
+    color: var(--muted); padding: 3px 9px; border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .brand .eq b { color: var(--x); font-weight: 600; }
+  .brand .eq i { color: var(--y); font-style: normal; font-weight: 600; }
+
+  .topright { display: flex; align-items: center; gap: 10px; }
+  .net {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
+    display: flex; align-items: center; gap: 7px;
+  }
+  .net .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .net.live .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  button {
+    font-family: inherit; cursor: pointer; border: none; border-radius: 9px;
+    transition: background .15s, opacity .15s, transform .05s;
+  }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  .btn-wallet {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+    padding: 9px 16px; font-size: 14px; font-weight: 500;
+  }
+  .btn-wallet:hover:not(:disabled) { background: var(--line); }
+  .icon-btn {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+    width: 38px; height: 38px; display: grid; place-items: center; font-size: 16px;
+  }
+  .icon-btn:hover { color: var(--text); }
+
+  /* ---------- layout ---------- */
+  main {
+    max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px;
+    display: grid; grid-template-columns: 1.32fr 1fr; gap: 24px; align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  /* ---------- curve panel ---------- */
+  .curve-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 20px 22px 0;
+  }
+  .curve-head h2 { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: .02em; text-transform: uppercase; }
+  .pool-tag { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
+  .pool-tag b { color: var(--x); } .pool-tag i { color: var(--y); font-style: normal; }
+
+  #curveWrap { padding: 6px 14px 0; position: relative; }
+  #curve { width: 100%; height: auto; display: block; }
+  .curve-empty {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    color: var(--muted); font-size: 14px; padding: 24px;
+  }
+
+  .readouts {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--line); margin-top: 8px;
+  }
+  .ro { padding: 14px 18px; border-right: 1px solid var(--line); }
+  .ro:last-child { border-right: none; }
+  .ro .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .ro .v { font-family: "IBM Plex Mono", monospace; font-size: 16px; font-weight: 500; margin-top: 4px; word-break: break-all; }
+  .ro .v.x { color: var(--x); } .ro .v.y { color: var(--y); }
+  @media (max-width: 520px){ .readouts { grid-template-columns: repeat(2,1fr); } .ro:nth-child(2){border-right:none;} .ro:nth-child(1),.ro:nth-child(2){border-bottom:1px solid var(--line);} }
+
+  /* ---------- action card ---------- */
+  .tabs { display: flex; gap: 4px; padding: 14px 14px 0; }
+  .tab {
+    flex: 1; background: transparent; color: var(--muted); padding: 10px;
+    font-size: 14px; font-weight: 500; border-radius: 9px;
+  }
+  .tab.active { background: var(--surface-2); color: var(--text); }
+
+  .card-body { padding: 14px; }
+
+  .field {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px;
+    padding: 13px 14px; transition: border-color .15s;
+  }
+  .field:focus-within { border-color: var(--muted); }
+  .field .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field .bal { font-size: 12px; color: var(--muted); cursor: pointer; }
+  .field .bal:hover { color: var(--text); }
+  .field input {
+    background: none; border: none; outline: none; color: var(--text);
+    font-family: "IBM Plex Mono", monospace; font-size: 24px; font-weight: 500;
+    width: 100%; margin-top: 6px;
+  }
+  .field input::placeholder { color: #3a4654; }
+  .token-chip {
+    display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px; font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 500;
+  }
+  .token-chip .swatch { width: 9px; height: 9px; border-radius: 50%; }
+  .swatch.x { background: var(--x); } .swatch.y { background: var(--y); }
+
+  .flip {
+    display: grid; place-items: center; margin: -8px 0; position: relative; z-index: 2;
+  }
+  .flip button {
+    background: var(--surface); border: 1px solid var(--line); color: var(--text);
+    width: 34px; height: 34px; border-radius: 9px; font-size: 15px;
+  }
+  .flip button:hover { background: var(--surface-2); }
+  .stack > * + * { margin-top: 8px; }
+
+  .meta {
+    margin-top: 12px; padding: 12px 14px; background: var(--surface-2);
+    border-radius: 11px; font-size: 13px;
+  }
+  .meta .line { display: flex; justify-content: space-between; padding: 3px 0; }
+  .meta .line span:first-child { color: var(--muted); }
+  .meta .line .mono { font-size: 13px; }
+  .impact-lo { color: var(--ok); } .impact-mid { color: var(--x); } .impact-hi { color: var(--danger); }
+
+  .slippage { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .slippage .opts { display: flex; gap: 6px; margin-left: auto; }
+  .slippage .opts button {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+    padding: 4px 10px; font-size: 12px; border-radius: 7px;
+  }
+  .slippage .opts button.on { border-color: var(--y); color: var(--y); }
+  .slippage input {
+    width: 56px; background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 7px; color: var(--text); padding: 4px 8px; font-family: "IBM Plex Mono", monospace; font-size: 12px; outline: none;
+  }
+
+  .cta {
+    width: 100%; margin-top: 14px; padding: 15px; font-size: 15px; font-weight: 700;
+    background: var(--y); color: #042b27;
+  }
+  .cta:hover:not(:disabled) { background: #4fe3cf; }
+  .cta.warn { background: var(--x); color: #2c2102; }
+  .cta.ghost { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+
+  /* remove-liquidity slider */
+  .pct-display { text-align: center; font-family: "IBM Plex Mono", monospace; font-size: 38px; font-weight: 600; padding: 6px 0 2px; }
+  input[type=range] { width: 100%; accent-color: var(--y); margin: 6px 0 4px; }
+  .pct-quick { display: flex; gap: 6px; }
+  .pct-quick button { flex:1; background: var(--surface-2); border:1px solid var(--line); color: var(--muted); padding: 7px; font-size: 13px; border-radius: 8px; }
+  .pct-quick button:hover { color: var(--text); }
+
+  /* ---------- status toast ---------- */
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(140%);
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px;
+    padding: 13px 18px; font-size: 14px; max-width: 90vw; display: flex; align-items: center; gap: 11px;
+    transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 50;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast .spin { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--y); border-radius: 50%; animation: spin .7s linear infinite; }
+  #toast.err { border-color: var(--danger); } #toast.err b { color: var(--danger); }
+  #toast.done { border-color: var(--ok); } #toast.done b { color: var(--ok); }
+  #toast a { color: var(--y); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- settings modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(5,8,12,.7); backdrop-filter: blur(3px);
+    display: none; place-items: center; z-index: 60; padding: 20px;
+  }
+  .overlay.show { display: grid; }
+  .modal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); width: 460px; max-width: 100%; padding: 22px; }
+  .modal h3 { font-size: 16px; margin-bottom: 4px; }
+  .modal p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .modal label { font-size: 12px; color: var(--muted); display: block; margin: 12px 0 6px; }
+  .modal input {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px;
+    color: var(--text); padding: 11px 12px; font-family: "IBM Plex Mono", monospace; font-size: 13px; outline: none;
+  }
+  .modal input:focus { border-color: var(--muted); }
+  .modal .actions { display: flex; gap: 10px; margin-top: 20px; }
+  .modal .actions button { flex: 1; padding: 12px; font-size: 14px; font-weight: 500; }
+  .modal .save { background: var(--y); color: #042b27; }
+  .modal .cancel { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 14px; line-height: 1.6; }
+  .err-text { color: var(--danger); font-size: 12px; margin-top: 8px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>Constant Product</h1>
+    <span class="eq"><b>x</b> · <i>y</i> = k</span>
+  </div>
+  <div class="topright">
+    <div class="net" id="net"><span class="dot"></span><span id="netLabel">not connected</span></div>
+    <button class="icon-btn" id="settingsBtn" title="Pool settings">⚙</button>
+    <button class="btn-wallet" id="walletBtn">Connect wallet</button>
+  </div>
+</header>
+
+<main>
+  <!-- ========== CURVE ========== -->
+  <section class="panel">
+    <div class="curve-head">
+      <h2>Pool invariant</h2>
+      <span class="pool-tag" id="poolTag">no pool loaded</span>
+    </div>
+    <div id="curveWrap">
+      <svg id="curve" viewBox="0 0 600 380" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+      <div class="curve-empty" id="curveEmpty">
+        Load a pool to render its curve.<br />Open ⚙ and paste your deployed pair address.
+      </div>
+    </div>
+    <div class="readouts">
+      <div class="ro"><div class="k">Reserve <span style="color:var(--x)">x</span></div><div class="v x" id="roX">—</div></div>
+      <div class="ro"><div class="k">Reserve <span style="color:var(--y)">y</span></div><div class="v y" id="roY">—</div></div>
+      <div class="ro"><div class="k">Spot price</div><div class="v" id="roPrice">—</div></div>
+      <div class="ro"><div class="k">k = x · y</div><div class="v mono" id="roK">—</div></div>
+    </div>
+  </section>
+
+  <!-- ========== ACTIONS ========== -->
+  <section class="panel">
+    <div class="tabs">
+      <button class="tab active" data-tab="swap">Swap</button>
+      <button class="tab" data-tab="add">Add</button>
+      <button class="tab" data-tab="remove">Remove</button>
+    </div>
+
+    <!-- SWAP -->
+    <div class="card-body" id="tab-swap">
+      <div class="stack">
+        <div class="field">
+          <div class="row"><label>You pay</label><span class="bal" id="swFromBal" title="Use max"></span></div>
+          <div class="row">
+            <input id="swFromAmt" inputmode="decimal" placeholder="0.0" autocomplete="off" />
+            <span class="token-chip"><span class="swatch x" id="swFromSw"></span><span id="swFromSym">—</span></span>
+          </div>
+        </div>
+        <div class="flip"><button id="flipBtn" title="Flip direction">↓↑</button></div>
+        <div class="field">
+          <div class="row"><label>You receive</label><span class="bal" id="swToBal"></span></div>
+          <div class="row">
+            <input id="swToAmt" placeholder="0.0" readonly />
+            <span class="token-chip"><span class="swatch y" id="swToSw"></span><span id="swToSym">—</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="meta" id="swMeta" style="display:none">
+        <div class="line"><span>Rate</span><span class="mono" id="swRate">—</span></div>
+        <div class="line"><span>Price impact</span><span class="mono" id="swImpact">—</span></div>
+        <div class="line"><span>Min received <span id="swSlipLabel"></span></span><span class="mono" id="swMin">—</span></div>
+        <div class="line"><span>Fee (0.30%)</span><span class="mono" id="swFee">—</span></div>
+      </div>
+
+      <div class="slippage">
+        <span>Slippage</span>
+        <div class="opts">
+          <button data-slip="0.1">0.1%</button>
+          <button data-slip="0.5" class="on">0.5%</button>
+          <button data-slip="1">1%</button>
+          <input id="slipCustom" inputmode="decimal" placeholder="%" />
+        </div>
+      </div>
+
+      <button class="cta" id="swapCta" disabled>Connect wallet</button>
+    </div>
+
+    <!-- ADD -->
+    <div class="card-body" id="tab-add" style="display:none">
+      <div class="stack">
+        <div class="field">
+          <div class="row"><label>Deposit <span id="addSymX">x</span></label><span class="bal" id="addBalX"></span></div>
+          <div class="row">
+            <input id="addAmtX" inputmode="decimal" placeholder="0.0" autocomplete="off" />
+            <span class="token-chip"><span class="swatch x"></span><span id="addChipX">—</span></span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="row"><label>Deposit <span id="addSymY">y</span></label><span class="bal" id="addBalY"></span></div>
+          <div class="row">
+            <input id="addAmtY" inputmode="decimal" placeholder="0.0" autocomplete="off" />
+            <span class="token-chip"><span class="swatch y"></span><span id="addChipY">—</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="meta" id="addMeta">
+        <div class="line"><span>Pool ratio</span><span class="mono" id="addRatio">—</span></div>
+        <div class="line"><span>Your pool share after</span><span class="mono" id="addShare">—</span></div>
+      </div>
+      <button class="cta warn" id="addCta" disabled>Connect wallet</button>
+    </div>
+
+    <!-- REMOVE -->
+    <div class="card-body" id="tab-remove" style="display:none">
+      <div class="pct-display"><span id="rmPct">0</span>%</div>
+      <input type="range" id="rmRange" min="0" max="100" value="0" />
+      <div class="pct-quick">
+        <button data-pct="25">25%</button><button data-pct="50">50%</button>
+        <button data-pct="75">75%</button><button data-pct="100">Max</button>
+      </div>
+      <div class="meta">
+        <div class="line"><span>Your LP balance</span><span class="mono" id="rmLp">—</span></div>
+        <div class="line"><span>Returns <span style="color:var(--x)">x</span></span><span class="mono" id="rmOutX">—</span></div>
+        <div class="line"><span>Returns <span style="color:var(--y)">y</span></span><span class="mono" id="rmOutY">—</span></div>
+      </div>
+      <button class="cta ghost" id="rmCta" disabled>Connect wallet</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<!-- settings -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3>Pool settings</h3>
+    <p>Point the interface at your deployed AMM pair. It reads the tokens, reserves, and decimals from chain.</p>
+    <label>Pair contract address</label>
+    <input id="setPair" placeholder="0x…" spellcheck="false" />
+    <label>RPC (optional — read-only when no wallet)</label>
+    <input id="setRpc" placeholder="https://… leave blank to use wallet" spellcheck="false" />
+    <div class="err-text" id="setErr"></div>
+    <div class="hint">Only the pair address is required. The factory’s <span class="mono">getPair(tokenA, tokenB)</span> returns it for any pair you created.</div>
+    <div class="actions">
+      <button class="cancel" id="setCancel">Cancel</button>
+      <button class="save" id="setSave">Load pool</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Minimal ABIs — match AMMPair.sol / ERC20
+   ============================================================ */
+const PAIR_ABI = [
+  "function token0() view returns (address)",
+  "function token1() view returns (address)",
+  "function getReserves() view returns (uint112 r0, uint112 r1)",
+  "function totalSupply() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) pure returns (uint256)",
+  "function swapExactIn(bool zeroForOne, uint256 amountIn, uint256 amountOutMin, address to) returns (uint256)",
+  "function addLiquidity(uint256 a0, uint256 a1, uint256 a0Min, uint256 a1Min, address to) returns (uint256,uint256,uint256)",
+  "function removeLiquidity(uint256 liquidity, uint256 a0Min, uint256 a1Min, address to) returns (uint256,uint256)"
+];
+const ERC20_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)"
+];
+
+const E = (id) => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch {} }
+};
+
+/* ============================================================
+   State
+   ============================================================ */
+let provider, signer, account, chainId;
+let pairAddr = store.get("amm.pair") || "";
+let rpcUrl   = store.get("amm.rpc")  || "";
+let pool = null;          // { t0, t1, dec0, dec1, sym0, sym1, r0, r1, totalSupply, lpBal }
+let zeroForOne = true;    // swap direction: true = sell token0
+let slippage = 0.5;
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+const fmt = (bn, dec, max = 6) => {
+  if (bn === undefined || bn === null) return "—";
+  const s = ethers.formatUnits(bn, dec);
+  const n = Number(s);
+  if (n === 0) return "0";
+  if (n < 0.000001) return n.toExponential(2);
+  return n.toLocaleString("en-US", { maximumFractionDigits: max });
+};
+const short = (a) => a ? a.slice(0,6) + "…" + a.slice(-4) : "";
+function toast(msg, kind = "wait", linkTx) {
+  const t = E("toast");
+  t.className = "show " + (kind === "err" ? "err" : kind === "done" ? "done" : "");
+  let inner = kind === "wait" ? '<span class="spin"></span>' : kind === "done" ? "✓ " : "✕ ";
+  inner += "<span><b>" + msg + "</b></span>";
+  if (linkTx && explorerBase) inner += ' <a href="'+explorerBase+'/tx/'+linkTx+'" target="_blank">view</a>';
+  t.innerHTML = inner;
+  if (kind !== "wait") setTimeout(() => t.classList.remove("show"), 5000);
+}
+let explorerBase = "";
+const EXPLORERS = { 1:"https://etherscan.io", 11155111:"https://sepolia.etherscan.io",
+  137:"https://polygonscan.com", 8453:"https://basescan.org", 42161:"https://arbiscan.io",
+  10:"https://optimistic.etherscan.io", 31337:"" };
+
+/* ============================================================
+   Wallet
+   ============================================================ */
+async function connect() {
+  if (!window.ethereum) { toast("No injected wallet found", "err"); return; }
+  try {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+    const net = await provider.getNetwork();
+    chainId = Number(net.chainId);
+    explorerBase = EXPLORERS[chainId] ?? "";
+    E("walletBtn").textContent = short(account);
+    E("net").classList.add("live");
+    E("netLabel").textContent = "chain " + chainId;
+    window.ethereum.on?.("accountsChanged", () => location.reload());
+    window.ethereum.on?.("chainChanged", () => location.reload());
+    if (pairAddr) await loadPool();
+    render();
+  } catch (e) { toast(cleanErr(e), "err"); }
+}
+
+function readProvider() {
+  if (provider) return provider;
+  if (rpcUrl) return new ethers.JsonRpcProvider(rpcUrl);
+  return null;
+}
+
+/* ============================================================
+   Load pool
+   ============================================================ */
+async function loadPool() {
+  const p = readProvider();
+  if (!p) { toast("Connect a wallet or set an RPC", "err"); return; }
+  if (!ethers.isAddress(pairAddr)) { toast("Invalid pair address", "err"); return; }
+  try {
+    const pair = new ethers.Contract(pairAddr, PAIR_ABI, p);
+    const [t0, t1] = await Promise.all([pair.token0(), pair.token1()]);
+    const c0 = new ethers.Contract(t0, ERC20_ABI, p);
+    const c1 = new ethers.Contract(t1, ERC20_ABI, p);
+    const [sym0, sym1, dec0, dec1, reserves, ts] = await Promise.all([
+      c0.symbol().catch(()=> "TKN0"), c1.symbol().catch(()=> "TKN1"),
+      c0.decimals().catch(()=> 18n), c1.decimals().catch(()=> 18n),
+      pair.getReserves(), pair.totalSupply()
+    ]);
+    pool = {
+      t0, t1, sym0, sym1, dec0: Number(dec0), dec1: Number(dec1),
+      r0: reserves[0], r1: reserves[1], totalSupply: ts,
+      lpBal: 0n, bal0: 0n, bal1: 0n
+    };
+    if (account) {
+      const [lp, b0, b1] = await Promise.all([
+        pair.balanceOf(account), c0.balanceOf(account), c1.balanceOf(account)
+      ]);
+      pool.lpBal = lp; pool.bal0 = b0; pool.bal1 = b1;
+    }
+    store.set("amm.pair", pairAddr);
+    E("poolTag").innerHTML = '<b>'+pool.sym0+'</b> / <i>'+pool.sym1+'</i>';
+    render();
+    drawCurve();
+  } catch (e) { toast("Could not read pool: " + cleanErr(e), "err"); }
+}
+
+async function refresh() { if (pairAddr) await loadPool(); }
+
+/* ============================================================
+   Rendering
+   ============================================================ */
+function render() {
+  const ready = !!pool;
+  E("curveEmpty").style.display = ready ? "none" : "grid";
+
+  if (ready) {
+    E("roX").textContent = fmt(pool.r0, pool.dec0);
+    E("roY").textContent = fmt(pool.r1, pool.dec1);
+    E("roK").textContent = (Number(ethers.formatUnits(pool.r0,pool.dec0)) *
+                            Number(ethers.formatUnits(pool.r1,pool.dec1))).toLocaleString("en-US",{maximumFractionDigits:2,notation:"compact"});
+    const price = Number(ethers.formatUnits(pool.r1,pool.dec1)) / Number(ethers.formatUnits(pool.r0,pool.dec0));
+    E("roPrice").innerHTML = price ? price.toLocaleString("en-US",{maximumFractionDigits:6}) +
+      ' <span style="color:var(--muted);font-size:12px">'+pool.sym1+'/'+pool.sym0+'</span>' : "—";
+  }
+
+  // swap labels by direction
+  const from = zeroForOne ? {sym:pool?.sym0, sw:"x", bal:pool?.bal0, dec:pool?.dec0}
+                          : {sym:pool?.sym1, sw:"y", bal:pool?.bal1, dec:pool?.dec1};
+  const to   = zeroForOne ? {sym:pool?.sym1, sw:"y", bal:pool?.bal1, dec:pool?.dec1}
+                          : {sym:pool?.sym0, sw:"x", bal:pool?.bal0, dec:pool?.dec0};
+  E("swFromSym").textContent = from.sym ?? "—";
+  E("swToSym").textContent   = to.sym ?? "—";
+  E("swFromSw").className = "swatch " + from.sw;
+  E("swToSw").className   = "swatch " + to.sw;
+  E("swFromBal").textContent = pool && account ? "balance " + fmt(from.bal, from.dec) : "";
+  E("swToBal").textContent   = pool && account ? "balance " + fmt(to.bal, to.dec) : "";
+
+  if (pool) {
+    E("addChipX").textContent = pool.sym0; E("addChipY").textContent = pool.sym1;
+    E("addSymX").textContent = pool.sym0;  E("addSymY").textContent = pool.sym1;
+    E("addBalX").textContent = account ? "balance " + fmt(pool.bal0, pool.dec0) : "";
+    E("addBalY").textContent = account ? "balance " + fmt(pool.bal1, pool.dec1) : "";
+    const ratio = Number(ethers.formatUnits(pool.r1,pool.dec1)) / Number(ethers.formatUnits(pool.r0,pool.dec0));
+    E("addRatio").textContent = ratio ? "1 "+pool.sym0+" = "+ratio.toLocaleString("en-US",{maximumFractionDigits:6})+" "+pool.sym1 : "new pool";
+    E("rmLp").textContent = fmt(pool.lpBal, 18);
+  }
+
+  // CTA states
+  const connected = !!signer;
+  for (const [id, label] of [["swapCta","Enter an amount"],["addCta","Enter amounts"],["rmCta","Select amount"]]) {
+    const b = E(id);
+    if (!connected) { b.textContent = "Connect wallet"; b.disabled = false; }
+    else if (!pool) { b.textContent = "Load a pool"; b.disabled = true; }
+    else { b.textContent = label; b.disabled = true; }
+  }
+  E("swSlipLabel").textContent = "(" + slippage + "%)";
+  updateAddQuote(); updateRemoveQuote();
+}
+
+/* ---- swap quote ---- */
+function updateSwapQuote() {
+  if (!pool) return;
+  const raw = E("swFromAmt").value.trim();
+  const meta = E("swMeta");
+  const decIn  = zeroForOne ? pool.dec0 : pool.dec1;
+  const decOut = zeroForOne ? pool.dec1 : pool.dec0;
+  const rIn  = zeroForOne ? pool.r0 : pool.r1;
+  const rOut = zeroForOne ? pool.r1 : pool.r0;
+
+  if (!raw || isNaN(raw) || Number(raw) <= 0) {
+    E("swToAmt").value = ""; meta.style.display = "none";
+    drawCurve();
+    if (signer) { E("swapCta").textContent = "Enter an amount"; E("swapCta").disabled = true; }
+    return;
+  }
+  let amountIn;
+  try { amountIn = ethers.parseUnits(raw, decIn); } catch { return; }
+  if (rIn === 0n || rOut === 0n) { E("swToAmt").value = "—"; return; }
+
+  // getAmountOut replicated locally for instant quoting
+  const amtInFee = amountIn * 997n;
+  const out = (amtInFee * rOut) / (rIn * 1000n + amtInFee);
+  E("swToAmt").value = fmt(out, decOut, 8);
+
+  // price impact: spot vs effective
+  const spot = Number(ethers.formatUnits(rOut, decOut)) / Number(ethers.formatUnits(rIn, decIn));
+  const eff  = Number(ethers.formatUnits(out, decOut)) / Number(ethers.formatUnits(amountIn, decIn));
+  const impact = spot > 0 ? Math.max(0, (1 - eff / spot) * 100) : 0;
+
+  const minOut = out * BigInt(Math.floor((100 - slippage) * 100)) / 10000n;
+  const fee = amountIn * 3n / 1000n;
+
+  const symIn  = zeroForOne ? pool.sym0 : pool.sym1;
+  const symOut = zeroForOne ? pool.sym1 : pool.sym0;
+  E("swRate").textContent = "1 "+symIn+" = "+eff.toLocaleString("en-US",{maximumFractionDigits:6})+" "+symOut;
+  const ic = impact < 1 ? "impact-lo" : impact < 5 ? "impact-mid" : "impact-hi";
+  E("swImpact").innerHTML = '<span class="'+ic+'">'+impact.toFixed(2)+"%</span>";
+  E("swMin").textContent = fmt(minOut, decOut, 8) + " " + symOut;
+  E("swFee").textContent = fmt(fee, decIn) + " " + symIn;
+  meta.style.display = "block";
+
+  if (signer) {
+    const bal = zeroForOne ? pool.bal0 : pool.bal1;
+    if (amountIn > bal) { E("swapCta").textContent = "Insufficient "+symIn; E("swapCta").disabled = true; }
+    else { E("swapCta").textContent = "Swap "+symIn+" → "+symOut; E("swapCta").disabled = false; }
+  }
+  drawCurve(amountIn, out);
+}
+
+/* ---- add-liquidity quote (mirror on-chain optimal ratio) ---- */
+let addEditing = null;
+function updateAddQuote() {
+  if (!pool) return;
+  const xRaw = E("addAmtX").value.trim(), yRaw = E("addAmtY").value.trim();
+  const hasReserves = pool.r0 > 0n && pool.r1 > 0n;
+
+  // keep ratio: if user edits X, compute optimal Y (and vice versa)
+  if (hasReserves) {
+    if (addEditing === "x" && xRaw && !isNaN(xRaw) && Number(xRaw) > 0) {
+      try {
+        const ax = ethers.parseUnits(xRaw, pool.dec0);
+        const ay = ax * pool.r1 / pool.r0;
+        E("addAmtY").value = fmt(ay, pool.dec1, 8);
+      } catch {}
+    } else if (addEditing === "y" && yRaw && !isNaN(yRaw) && Number(yRaw) > 0) {
+      try {
+        const ay = ethers.parseUnits(yRaw, pool.dec1);
+        const ax = ay * pool.r0 / pool.r1;
+        E("addAmtX").value = fmt(ax, pool.dec0, 8);
+      } catch {}
+    }
+  }
+
+  const xv = E("addAmtX").value.trim(), yv = E("addAmtY").value.trim();
+  const valid = xv && yv && !isNaN(xv) && !isNaN(yv) && Number(xv) > 0 && Number(yv) > 0;
+  if (valid && signer) {
+    try {
+      const ax = ethers.parseUnits(xv, pool.dec0);
+      let shareTxt = "—";
+      if (hasReserves && pool.totalSupply > 0n) {
+        const minted = ax * pool.totalSupply / pool.r0;
+        const share = Number(minted) / (Number(pool.totalSupply) + Number(minted)) * 100;
+        shareTxt = share.toFixed(3) + "%";
+      } else shareTxt = "100% (new pool)";
+      E("addShare").textContent = shareTxt;
+      const enoughX = pool.bal0 === undefined || ax <= pool.bal0;
+      E("addCta").disabled = !enoughX;
+      E("addCta").textContent = enoughX ? "Add liquidity" : "Insufficient "+pool.sym0;
+    } catch {}
+  } else if (signer && pool) {
+    E("addCta").disabled = true; E("addCta").textContent = "Enter amounts";
+  }
+}
+
+/* ---- remove-liquidity quote ---- */
+function updateRemoveQuote() {
+  if (!pool) return;
+  const pct = Number(E("rmRange").value);
+  E("rmPct").textContent = pct;
+  if (pool.totalSupply > 0n && pool.lpBal > 0n) {
+    const liq = pool.lpBal * BigInt(pct) / 100n;
+    const outX = liq * pool.r0 / pool.totalSupply;
+    const outY = liq * pool.r1 / pool.totalSupply;
+    E("rmOutX").textContent = fmt(outX, pool.dec0) + " " + pool.sym0;
+    E("rmOutY").textContent = fmt(outY, pool.dec1) + " " + pool.sym1;
+    if (signer) {
+      E("rmCta").disabled = pct === 0;
+      E("rmCta").textContent = pct === 0 ? "Select amount" : "Remove "+pct+"%";
+    }
+  } else {
+    E("rmOutX").textContent = "—"; E("rmOutY").textContent = "—";
+  }
+}
+
+/* ============================================================
+   Curve visualization  (the signature)
+   ============================================================ */
+function drawCurve(amountIn, amountOut) {
+  const svg = E("curve");
+  if (!pool || pool.r0 === 0n || pool.r1 === 0n) { svg.innerHTML = ""; return; }
+
+  const W = 600, H = 380, padL = 52, padR = 24, padT = 24, padB = 44;
+  const x0 = Number(ethers.formatUnits(pool.r0, pool.dec0));
+  const y0 = Number(ethers.formatUnits(pool.r1, pool.dec1));
+  const k = x0 * y0;
+
+  // post-trade reserve point
+  let xT = x0, yT = y0;
+  if (amountIn && amountOut) {
+    const dIn  = zeroForOne ? Number(ethers.formatUnits(amountIn, pool.dec0)) : Number(ethers.formatUnits(amountIn, pool.dec1));
+    const dOut = zeroForOne ? Number(ethers.formatUnits(amountOut, pool.dec1)) : Number(ethers.formatUnits(amountOut, pool.dec0));
+    if (zeroForOne) { xT = x0 + dIn; yT = y0 - dOut; }
+    else            { yT = y0 + dIn; xT = x0 - dOut; }
+  }
+
+  // plot window framing both points with headroom
+  const xMin = Math.max(k / (Math.max(y0, yT) * 2.6), Math.min(x0, xT) * 0.45);
+  const xMax = Math.max(x0, xT) * 1.9;
+  const yMax = k / xMin;
+  const sx = (v) => padL + (v - xMin) / (xMax - xMin) * (W - padL - padR);
+  const sy = (v) => H - padB - (v) / (yMax) * (H - padT - padB);
+
+  // hyperbola path
+  let d = "";
+  const N = 120;
+  for (let i = 0; i <= N; i++) {
+    const xv = xMin + (xMax - xMin) * i / N;
+    const yv = k / xv;
+    if (yv > yMax * 1.05) continue;
+    d += (d ? " L" : "M") + sx(xv).toFixed(1) + " " + sy(yv).toFixed(1);
+  }
+  // area under curve for fill
+  const area = d + " L" + sx(xMax).toFixed(1) + " " + sy(0).toFixed(1) +
+               " L" + sx(xMin).toFixed(1) + " " + sy(0).toFixed(1) + " Z";
+
+  const traded = amountIn && amountOut;
+  const px = sx(x0), py = sy(y0), tx = sx(xT), ty = sy(yT);
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="curveGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="var(--x)"/><stop offset="1" stop-color="var(--y)"/>
+      </linearGradient>
+      <linearGradient id="fillGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="var(--y)" stop-opacity="0.10"/>
+        <stop offset="1" stop-color="var(--y)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <!-- axes -->
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="var(--line)"/>
+    <line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="var(--line)"/>
+    <text x="${padL-8}" y="${padT+4}" fill="var(--y)" font-size="11" text-anchor="end" font-family="IBM Plex Mono">y</text>
+    <text x="${W-padR}" y="${H-padB+22}" fill="var(--x)" font-size="11" text-anchor="end" font-family="IBM Plex Mono">x</text>
+
+    <path d="${area}" fill="url(#fillGrad)"/>
+    <path d="${d}" fill="none" stroke="url(#curveGrad)" stroke-width="2.5"/>
+
+    ${traded ? `
+      <!-- projection lines for the new point -->
+      <line x1="${tx}" y1="${ty}" x2="${tx}" y2="${H-padB}" stroke="var(--x)" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>
+      <line x1="${tx}" y1="${ty}" x2="${padL}" y2="${ty}" stroke="var(--y)" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/>
+      <!-- movement arrow -->
+      <line x1="${px}" y1="${py}" x2="${tx}" y2="${ty}" stroke="var(--text)" stroke-width="1.2" opacity="0.4"/>
+    ` : ``}
+
+    <!-- current reserve point -->
+    <circle cx="${px}" cy="${py}" r="6" fill="var(--bg)" stroke="url(#curveGrad)" stroke-width="2.5"/>
+    ${traded ? `<circle cx="${px}" cy="${py}" r="11" fill="none" stroke="var(--muted)" stroke-width="1" opacity="0.5"/>` : 
+      `<circle cx="${px}" cy="${py}" r="6" fill="none" stroke="var(--y)" stroke-width="2"><animate attributeName="r" values="6;13;6" dur="2.4s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.6;0;0.6" dur="2.4s" repeatCount="indefinite"/></circle>`}
+
+    ${traded ? `
+      <circle cx="${tx}" cy="${ty}" r="6" fill="var(--y)" stroke="var(--bg)" stroke-width="1.5"/>
+      <text x="${tx}" y="${ty-12}" fill="var(--text)" font-size="11" text-anchor="middle" font-family="IBM Plex Mono">new</text>
+    ` : ``}
+  `;
+}
+
+/* ============================================================
+   Transactions
+   ============================================================ */
+async function ensureAllowance(tokenAddr, amount, label) {
+  const erc = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
+  const current = await erc.allowance(account, pairAddr);
+  if (current >= amount) return;
+  toast("Approve "+label+" — confirm in wallet");
+  const tx = await erc.approve(pairAddr, amount);
+  toast("Approving "+label+"…", "wait", tx.hash);
+  await tx.wait();
+}
+
+async function doSwap() {
+  if (!signer) return connect();
+  try {
+    const decIn = zeroForOne ? pool.dec0 : pool.dec1;
+    const decOut = zeroForOne ? pool.dec1 : pool.dec0;
+    const tokenIn = zeroForOne ? pool.t0 : pool.t1;
+    const symIn = zeroForOne ? pool.sym0 : pool.sym1;
+    const amountIn = ethers.parseUnits(E("swFromAmt").value.trim(), decIn);
+    const rIn = zeroForOne ? pool.r0 : pool.r1, rOut = zeroForOne ? pool.r1 : pool.r0;
+    const amtInFee = amountIn * 997n;
+    const out = (amtInFee * rOut) / (rIn * 1000n + amtInFee);
+    const minOut = out * BigInt(Math.floor((100 - slippage) * 100)) / 10000n;
+
+    await ensureAllowance(tokenIn, amountIn, symIn);
+    const pair = new ethers.Contract(pairAddr, PAIR_ABI, signer);
+    toast("Confirm swap in wallet");
+    const tx = await pair.swapExactIn(zeroForOne, amountIn, minOut, account);
+    toast("Swapping…", "wait", tx.hash);
+    await tx.wait();
+    toast("Swap confirmed", "done", tx.hash);
+    E("swFromAmt").value = ""; updateSwapQuote();
+    await refresh();
+  } catch (e) { toast(cleanErr(e), "err"); }
+}
+
+async function doAdd() {
+  if (!signer) return connect();
+  try {
+    const ax = ethers.parseUnits(E("addAmtX").value.trim(), pool.dec0);
+    const ay = ethers.parseUnits(E("addAmtY").value.trim(), pool.dec1);
+    // 0.5% tolerance on the optimal ratio
+    const axMin = ax * 995n / 1000n, ayMin = ay * 995n / 1000n;
+    await ensureAllowance(pool.t0, ax, pool.sym0);
+    await ensureAllowance(pool.t1, ay, pool.sym1);
+    const pair = new ethers.Contract(pairAddr, PAIR_ABI, signer);
+    toast("Confirm add in wallet");
+    const tx = await pair.addLiquidity(ax, ay, axMin, ayMin, account);
+    toast("Adding liquidity…", "wait", tx.hash);
+    await tx.wait();
+    toast("Liquidity added", "done", tx.hash);
+    E("addAmtX").value = ""; E("addAmtY").value = "";
+    await refresh();
+  } catch (e) { toast(cleanErr(e), "err"); }
+}
+
+async function doRemove() {
+  if (!signer) return connect();
+  try {
+    const pct = Number(E("rmRange").value);
+    const liq = pool.lpBal * BigInt(pct) / 100n;
+    const outX = liq * pool.r0 / pool.totalSupply;
+    const outY = liq * pool.r1 / pool.totalSupply;
+    const xMin = outX * BigInt(Math.floor((100 - slippage) * 100)) / 10000n;
+    const yMin = outY * BigInt(Math.floor((100 - slippage) * 100)) / 10000n;
+    const pair = new ethers.Contract(pairAddr, PAIR_ABI, signer);
+    toast("Confirm removal in wallet");
+    const tx = await pair.removeLiquidity(liq, xMin, yMin, account);
+    toast("Removing liquidity…", "wait", tx.hash);
+    await tx.wait();
+    toast("Liquidity removed", "done", tx.hash);
+    E("rmRange").value = 0; updateRemoveQuote();
+    await refresh();
+  } catch (e) { toast(cleanErr(e), "err"); }
+}
+
+function cleanErr(e) {
+  const m = e?.reason || e?.shortMessage || e?.info?.error?.message || e?.message || String(e);
+  if (m.includes("user rejected")) return "Rejected in wallet";
+  return m.length > 80 ? m.slice(0,80) + "…" : m;
+}
+
+/* ============================================================
+   Wiring
+   ============================================================ */
+E("walletBtn").onclick = () => account ? null : connect();
+E("flipBtn").onclick = () => { zeroForOne = !zeroForOne; E("swFromAmt").value=""; render(); updateSwapQuote(); };
+E("swFromAmt").oninput = updateSwapQuote;
+E("swFromBal").onclick = () => {
+  if (!pool || !account) return;
+  const bal = zeroForOne ? pool.bal0 : pool.bal1;
+  const dec = zeroForOne ? pool.dec0 : pool.dec1;
+  E("swFromAmt").value = ethers.formatUnits(bal, dec); updateSwapQuote();
+};
+E("swapCta").onclick = () => signer ? doSwap() : connect();
+
+E("addAmtX").oninput = () => { addEditing = "x"; updateAddQuote(); };
+E("addAmtY").oninput = () => { addEditing = "y"; updateAddQuote(); };
+E("addCta").onclick = () => signer ? doAdd() : connect();
+
+E("rmRange").oninput = updateRemoveQuote;
+document.querySelectorAll(".pct-quick button").forEach(b =>
+  b.onclick = () => { E("rmRange").value = b.dataset.pct; updateRemoveQuote(); });
+E("rmCta").onclick = () => signer ? doRemove() : connect();
+
+// tabs
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  for (const name of ["swap","add","remove"])
+    E("tab-"+name).style.display = name === t.dataset.tab ? "block" : "none";
+});
+
+// slippage
+document.querySelectorAll(".opts button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".opts button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); E("slipCustom").value = ""; slippage = Number(b.dataset.slip);
+  render(); updateSwapQuote();
+});
+E("slipCustom").oninput = (e) => {
+  const v = Number(e.target.value);
+  if (v > 0 && v <= 50) {
+    document.querySelectorAll(".opts button").forEach(x => x.classList.remove("on"));
+    slippage = v; render(); updateSwapQuote();
+  }
+};
+
+// settings modal
+E("settingsBtn").onclick = () => {
+  E("setPair").value = pairAddr; E("setRpc").value = rpcUrl;
+  E("setErr").textContent = ""; E("overlay").classList.add("show");
+};
+E("setCancel").onclick = () => E("overlay").classList.remove("show");
+E("overlay").onclick = (e) => { if (e.target === E("overlay")) E("overlay").classList.remove("show"); };
+E("setSave").onclick = async () => {
+  const addr = E("setPair").value.trim();
+  if (!ethers.isAddress(addr)) { E("setErr").textContent = "That isn't a valid address."; return; }
+  pairAddr = addr; rpcUrl = E("setRpc").value.trim();
+  store.set("amm.pair", pairAddr); store.set("amm.rpc", rpcUrl);
+  E("overlay").classList.remove("show");
+  await loadPool();
+};
+
+// boot
+(async () => {
+  if (pairAddr && rpcUrl) await loadPool();
+  render();
+  if (window.ethereum) {
+    const accs = await window.ethereum.request({ method: "eth_accounts" }).catch(()=>[]);
+    if (accs && accs.length) await connect();
+  }
+})();
+</script>
+</body>
+</html>
