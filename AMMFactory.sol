@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {AMMPair} from "./AMMPair.sol";
+import {AMMPair} from "./AMMPair.sol"
 
 /// @title AMMFactory
 /// @notice Deploys one canonical AMMPair per unordered token pair and indexes them.
